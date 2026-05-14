@@ -241,6 +241,6 @@ Built using **VSCode** with **Claude (Anthropic)** as an AI coding assistant for
 
 <div align="center">
 
-**Built for Lyftr AI Backend Assignment **
+
 
 </div>
