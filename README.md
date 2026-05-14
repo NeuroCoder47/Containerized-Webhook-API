@@ -1,60 +1,43 @@
-<div align="center">
+# Lyftr AI — Backend Thingy I Somehow Got Working
 
-# 🔗 Lyftr AI — Containerized Webhook API
+So… this is my very serious, totally professional backend API for the Lyftr assignment.  
+In normal words: it’s a tiny inbox where “WhatsApp-ish” messages come in, I check if they’re fake using a secret, and if they pass, I save them into a SQLite database and then pretend this is “production-grade infrastructure”. [file:1]
 
-<img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python">
-<img src="https://img.shields.io/badge/FastAPI-0.136+-green.svg" alt="FastAPI">
-<img src="https://img.shields.io/badge/Docker-Compose-2496ED.svg" alt="Docker">
-<img src="https://img.shields.io/badge/SQLite-Database-003B57.svg" alt="SQLite">
-<img src="https://img.shields.io/badge/Tests-19%20Passing-success.svg" alt="Tests">
-
-### *Production-style WhatsApp-like Message Inbox API*
-
-[Overview](#-overview) •
-[Quick Start](#-quick-start) •
-[Endpoints](#-endpoints) •
-[Design Decisions](#-design-decisions) •
-[Setup Used](#-setup-used)
+It runs inside Docker so you don’t even need Python installed, just nerves of steel and Docker Desktop. [file:1]
 
 ---
 
-<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=18&duration=3000&pause=1000&color=2E9EF7&center=true&vCenter=true&width=600&lines=Receive+Messages+via+Webhook;HMAC+Signature+Verification;Paginated+%2B+Filterable+API;Prometheus+Metrics+%2B+JSON+Logs;Runs+in+Docker+Compose" alt="Typing SVG" />
+## How to Run This Without Crying
 
-</div>
+**Prerequisites:**
 
----
+- Docker Desktop running
+- `make` installed
+- Basic faith in copy–paste
 
-##  Overview
-
-A production-style FastAPI service that ingests inbound WhatsApp-like messages exactly once, validates HMAC-based signatures, stores them in SQLite, and exposes paginated search, analytics, Prometheus metrics, and structured JSON logs — all running inside Docker Compose.
-
-
-##  Quick Start
-
-### Prerequisites
-- Docker Desktop installed and running
-
-### Run the app
+**Start the app:**
 
 ```bash
 make up
 ```
 
-The API is now live at **http://localhost:8000**
+If nothing explodes, the API should be available at:
 
-### Stop the app
+- http://localhost:8000
+
+**Shut it down:**
 
 ```bash
 make down
 ```
 
-### View live logs
+**See what it’s doing (or breaking):**
 
 ```bash
 make logs
 ```
 
-### Run tests
+**Run tests (they passed on my machine, which is legally binding):**
 
 ```bash
 make test
@@ -62,168 +45,179 @@ make test
 
 ---
 
-##  Endpoints
+## What This Backend Actually Does
 
-### POST /webhook — Receive a message
+Think of it as a filtered message inbox:
 
-```bash
-# Compute signature first
-BODY='{"message_id":"m1","from":"+919876543210","to":"+14155550100","ts":"2025-01-15T10:00:00Z","text":"Hello"}'
-SIG=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "testsecret" | awk '{print $2}')
+1. Messages arrive at a `/webhook` endpoint. [file:1]  
+2. Each message has a signature header (`X-Signature`) that is validated using HMAC-SHA256 and a secret (`WEBHOOK_SECRET`). [file:1]  
+3. If the signature is valid and the payload is correct, the message is stored in SQLite. [file:1]  
+4. You can then:
+   - List messages with filters and pagination via `/messages`. [file:1]
+   - Get simple stats via `/stats`. [file:1]
+   - Check health with `/health/live` and `/health/ready`. [file:1]
+   - Scrape metrics for Prometheus via `/metrics`. [file:1]
 
-curl -s -X POST http://localhost:8000/webhook \
-  -H "Content-Type: application/json" \
-  -H "X-Signature: $SIG" \
-  -d "$BODY"
-```
-
-Response:
-```json
-{"status": "ok"}
-```
+All of this is wrapped in FastAPI and containerized with Docker Compose. [file:1]
 
 ---
 
-### GET /messages — List messages
+## Main Endpoints (Human-Level Summary)
 
-```bash
-# Basic list
-curl -s "http://localhost:8000/messages"
+### 1. `POST /webhook` — Messages Enter Here
 
-# With pagination
-curl -s "http://localhost:8000/messages?limit=2&offset=0"
+- Accepts JSON with fields like:
+  - `message_id`
+  - `from`
+  - `to`
+  - `ts` (ISO-8601 UTC)
+  - `text` (optional) [file:1]
+- Requires:
+  - Header `X-Signature`: HMAC-SHA256 of the **raw** request body using `WEBHOOK_SECRET`. [file:1]
+- Behavior:
+  - If signature is missing or invalid → returns `401` and does **not** save anything. [file:1]
+  - If payload is invalid → returns `422`, no DB insert. [file:1]
+  - If valid and new `message_id` → inserts into DB and returns `{"status": "ok"}`. [file:1]
+  - If valid but `message_id` already exists → returns `{"status": "ok"}` but does not insert again (idempotent). [file:1]
 
-# Filter by sender
-curl -s "http://localhost:8000/messages?from=%2B919876543210"
-
-# Filter by date
-curl -s "http://localhost:8000/messages?since=2025-01-15T09:30:00Z"
-
-# Search by keyword
-curl -s "http://localhost:8000/messages?q=Hello"
-```
-
-Response:
-```json
-{
-  "data": [{"message_id": "m1", "from": "+919876543210", "to": "+14155550100", "ts": "2025-01-15T10:00:00Z", "text": "Hello"}],
-  "total": 1,
-  "limit": 50,
-  "offset": 0
-}
-```
+In short: “Only real, well-formed messages get in, and only once.”
 
 ---
 
-### GET /stats — Analytics
+### 2. `GET /messages` — Browse Stored Messages
 
-```bash
-curl -s "http://localhost:8000/stats"
-```
+- Supports:
+  - `limit` (default 50, max 100)
+  - `offset` (default 0)
+  - `from` (filter by sender)
+  - `since` (only messages after a timestamp)
+  - `q` (simple substring search in `text`) [file:1]
+- Always ordered by:
+  - `ts` ascending
+  - `message_id` ascending [file:1]
+- Response contains:
+  - `data`: list of messages
+  - `total`: total matching rows for the filters (ignores pagination)
+  - `limit`
+  - `offset` [file:1]
 
-Response:
-```json
-{
-  "total_messages": 5,
-  "senders_count": 2,
-  "messages_per_sender": [{"from": "+919876543210", "count": 3}],
-  "first_message_ts": "2025-01-15T09:00:00Z",
-  "last_message_ts": "2025-01-15T12:00:00Z"
-}
-```
-
----
-
-### GET /health/live — Liveness probe
-
-```bash
-curl -s "http://localhost:8000/health/live"
-# {"status": "ok"}
-```
+So you can paginate and still know how many total messages match your filters.
 
 ---
 
-### GET /health/ready — Readiness probe
+### 3. `GET /stats` — Simple Message Analytics
 
-```bash
-curl -s "http://localhost:8000/health/ready"
-# {"status": "ok"}  if DB connected and secret is set
-# 503               otherwise
-```
+Returns a JSON summary like: [file:1]
 
----
+- `total_messages`: total number of messages
+- `senders_count`: number of unique senders
+- `messages_per_sender`: up to top 10 senders with counts
+- `first_message_ts`: earliest message timestamp or `null`
+- `last_message_ts`: latest message timestamp or `null` [file:1]
 
-### GET /metrics — Prometheus metrics
-
-```bash
-curl -s "http://localhost:8000/metrics"
-```
-
-Response (plain text):
-```
-http_requests_total{path="/webhook",status="200"} 5
-webhook_requests_total{result="created"} 3
-webhook_requests_total{result="duplicate"} 2
-request_latency_ms_bucket{le="100"} 5
-```
+These are computed with a few SQL queries over the `messages` table. [file:1]
 
 ---
 
-##  Design Decisions
+### 4. Health Checks
+
+- `GET /health/live`  
+  - Just confirms the app is running and able to respond. Always returns 200 once the app is up. [file:1]
+
+- `GET /health/ready`  
+  - Returns 200 **only if**:
+    - The database is reachable and schema is applied
+    - `WEBHOOK_SECRET` is set  
+  - Otherwise returns 503. [file:1]
+
+This lets something like Kubernetes know when the app is actually ready and not just “technically alive”.
+
+---
+
+### 5. `GET /metrics` — Prometheus Metrics
+
+- Exposes text-based metrics in Prometheus exposition format. [file:1]
+- Includes:
+  - A counter for total HTTP requests with labels like `path` and `status`
+  - A counter for webhook outcomes (`created`, `duplicate`, `invalid_signature`, etc.)
+  - Some latency bucket metrics [file:1]
+- Metrics are tracked in memory using Python dictionaries and updated by middleware on each request. [file:1]
+
+---
+
+## Design Decisions (Yes, There Was Some Thought)
 
 ### HMAC Signature Verification
 
-Every incoming webhook request must include an `X-Signature` header containing `hex(HMAC_SHA256(WEBHOOK_SECRET, raw_body_bytes))`.
+- Reads the raw request body bytes.  
+- Uses Python’s `hmac` library with `WEBHOOK_SECRET` to compute an HMAC-SHA256 hex digest. [file:1]  
+- Compares it to `X-Signature` using `hmac.compare_digest` for constant-time comparison. [file:1]  
+- If they differ → 401, no DB insert, error log entry. [file:1]
 
-The server reads the raw request body bytes before any JSON parsing, computes its own HMAC using the same secret, and compares the two using `hmac.compare_digest()` — a constant-time comparison that prevents timing attacks. If they don't match, the request is rejected with 401 and nothing is written to the database.
+This ensures only callers with the shared secret can successfully post messages.
 
-### Pagination
+### Pagination Contract
 
-`GET /messages` uses `limit` and `offset` query parameters. `limit` defaults to 50, min 1, max 100. `offset` defaults to 0. The `total` field in the response always reflects the full count of matching records for the given filters — not just the number returned on the current page. Ordering is always `ts ASC, message_id ASC` for deterministic results.
+- `limit`: default 50, max 100, minimum 1  
+- `offset`: default 0, minimum 0 [file:1]  
+- `total` in the response always refers to *all* matching rows for that filter, not just the current page. [file:1]  
+- Messages are always ordered by `ts` then `message_id` for deterministic results. [file:1]
 
-### Idempotency
+### Stats Implementation
 
-The `messages` table uses `message_id` as a `PRIMARY KEY`. Before inserting, the app checks if that `message_id` already exists. If it does, it returns `200 {"status": "ok"}` without inserting a second row. This means sending the same message 10 times is identical to sending it once.
+- Uses a small set of SQL queries:
+  - Count all messages
+  - Count distinct senders
+  - Group by sender and sort by count (top 10)
+  - Get MIN and MAX timestamps [file:1]
+- If no messages exist, first and last timestamps are `null`. [file:1]
 
-### Stats
+### Metrics Implementation
 
-`GET /stats` runs four SQL queries: `COUNT(*)` for total messages, `COUNT(DISTINCT from_msisdn)` for unique senders, `GROUP BY from_msisdn ORDER BY count DESC LIMIT 10` for top senders, and `MIN(ts) / MAX(ts)` for first and last timestamps. Returns nulls when no messages exist.
-
-### Metrics
-
-Counters are stored in Python `defaultdict(int)` in memory. Three counters are tracked: HTTP requests by path and status code, webhook outcomes by result type, and request latency buckets (100ms, 500ms, +Inf). These are formatted as Prometheus exposition text at `GET /metrics`.
-
-### Structured JSON Logs
-
-Every request produces one JSON log line with fields: `ts`, `level`, `request_id`, `method`, `path`, `status`, `latency_ms`. Webhook requests additionally include `message_id`, `dup`, and `result`. Logging is handled via Python's built-in `logging` module with a custom `JSONFormatter`.
+- Uses in-memory `defaultdict(int)` to track counters. [file:1]  
+- Middleware wraps each request to record:
+  - Request counts
+  - Status codes
+  - Webhook outcome labels
+  - Latency buckets [file:1]
+- `/metrics` formats these into Prometheus-style lines. [file:1]
 
 ---
 
-##  Environment Variables
+## Configuration via Environment Variables
 
-| Variable | Description | Default |
-|---|---|---|
-| `WEBHOOK_SECRET` | HMAC signing secret — **required** | none |
-| `DATABASE_URL` | SQLite file path | `sqlite:////data/app.db` |
-| `LOG_LEVEL` | Logging verbosity | `INFO` |
+The app is configured using environment variables (12-factor style): [file:1]
+
+- `WEBHOOK_SECRET`  
+  - Required  
+  - Used for HMAC validation  
+  - If not set, the app will never be “ready” (health/ready fails). [file:1]
+
+- `DATABASE_URL`  
+  - Default: `sqlite:////data/app.db`  
+  - Points to the SQLite DB file (mounted via Docker volume). [file:1]
+
+- `LOG_LEVEL`  
+  - Default: `INFO`  
+  - Controls logging verbosity. [file:1]
 
 ---
 
-##  Project Structure
+## Project Structure
 
-```
+```text
 ├── app/
-│   ├── main.py          # FastAPI app, middleware, all routes
-│   ├── models.py        # SQLite table initialisation
-│   ├── storage.py       # All database operations
+│   ├── main.py          # FastAPI app, routes, middleware
+│   ├── models.py        # SQLite table definitions
+│   ├── storage.py       # DB read/write helpers
 │   ├── config.py        # Environment variable loading
-│   ├── logging_utils.py # JSON log formatter
-│   └── metrics.py       # Prometheus counter helpers
+│   ├── logging_utils.py # JSON logging helpers
+│   └── metrics.py       # Metrics helpers
 ├── tests/
-│   ├── conftest.py      # Shared pytest fixtures
-│   ├── test_webhook.py  # Webhook endpoint tests
-│   ├── test_messages.py # Messages pagination + filter tests
-│   └── test_stats.py    # Stats correctness tests
+│   ├── conftest.py
+│   ├── test_webhook.py
+│   ├── test_messages.py
+│   └── test_stats.py
 ├── Dockerfile
 ├── docker-compose.yml
 ├── Makefile
@@ -231,16 +225,22 @@ Every request produces one JSON log line with fields: `ts`, `level`, `request_id
 └── README.md
 ```
 
----
-
-##  Setup Used
-
-Built using **VSCode** with **Claude (Anthropic)** as an AI coding assistant for guidance on FastAPI patterns, Docker configuration, and debugging. All code was written, reviewed, and understood by the author.
+This matches the deliverables expected in the assignment description. [file:1]
 
 ---
 
-<div align="center">
+## Tech Stack & Tools Used
 
+- **Language:** Python (3.11+) [file:1]  
+- **Framework:** FastAPI (async, modern, mildly intimidating at first) [file:1]  
+- **Database:** SQLite (file-based, stored in a Docker volume) [file:1]  
+- **Containerization:** Docker & Docker Compose [file:1]  
+- **Config:** Environment variables (`WEBHOOK_SECRET`, `DATABASE_URL`, `LOG_LEVEL`) [file:1]  
+- **Logging:** Structured JSON logs, one line per request, including fields like `ts`, `level`, `request_id`, `method`, `path`, `status`, `latency_ms`, and for webhooks, `message_id`, `dup`, and `result`. [file:1]
 
+For development, a code editor (VSCode) and an AI assistant were used to better understand FastAPI, Docker, and HMAC, but all logic and structure were implemented and understood by the developer. [file:1]
 
+---
+
+If you were a hiring manager reading this README, what part would you say still feels *too* senior/over-polished for an “entry-level” voice and should be simplified or made more naive?
 </div>
