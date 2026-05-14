@@ -28,25 +28,6 @@
 
 A production-style FastAPI service that ingests inbound WhatsApp-like messages exactly once, validates HMAC-based signatures, stores them in SQLite, and exposes paginated search, analytics, Prometheus metrics, and structured JSON logs — all running inside Docker Compose.
 
-```mermaid
-graph LR
-    A[📱 WhatsApp Sender] -->|POST /webhook| B[🔐 HMAC Verification]
-    B -->|Valid| C[📦 SQLite Database]
-    B -->|Invalid| D[❌ 401 Rejected]
-    C -->|GET /messages| E[📋 Paginated List]
-    C -->|GET /stats| F[📊 Analytics]
-    C -->|GET /metrics| G[📈 Prometheus]
-
-    style A fill:#e1f5ff
-    style B fill:#fff4e1
-    style C fill:#e1ffe1
-    style D fill:#ffe1e1
-    style E fill:#f5e1ff
-    style F fill:#ffe1f5
-    style G fill:#e1f5e1
-```
-
----
 
 ## 🚀 Quick Start
 
