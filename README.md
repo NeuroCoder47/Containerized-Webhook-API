@@ -24,12 +24,12 @@
 
 ---
 
-## 📖 Overview
+##  Overview
 
 A production-style FastAPI service that ingests inbound WhatsApp-like messages exactly once, validates HMAC-based signatures, stores them in SQLite, and exposes paginated search, analytics, Prometheus metrics, and structured JSON logs — all running inside Docker Compose.
 
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Prerequisites
 - Docker Desktop installed and running
@@ -62,7 +62,7 @@ make test
 
 ---
 
-## 🔌 Endpoints
+##  Endpoints
 
 ### POST /webhook — Receive a message
 
@@ -169,7 +169,7 @@ request_latency_ms_bucket{le="100"} 5
 
 ---
 
-## 🏗️ Design Decisions
+##  Design Decisions
 
 ### HMAC Signature Verification
 
@@ -199,7 +199,7 @@ Every request produces one JSON log line with fields: `ts`, `level`, `request_id
 
 ---
 
-## ⚙️ Environment Variables
+##  Environment Variables
 
 | Variable | Description | Default |
 |---|---|---|
@@ -209,7 +209,7 @@ Every request produces one JSON log line with fields: `ts`, `level`, `request_id
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 ├── app/
@@ -233,7 +233,7 @@ Every request produces one JSON log line with fields: `ts`, `level`, `request_id
 
 ---
 
-## 🛠️ Setup Used
+##  Setup Used
 
 Built using **VSCode** with **Claude (Anthropic)** as an AI coding assistant for guidance on FastAPI patterns, Docker configuration, and debugging. All code was written, reviewed, and understood by the author.
 
@@ -241,6 +241,6 @@ Built using **VSCode** with **Claude (Anthropic)** as an AI coding assistant for
 
 <div align="center">
 
-**Built for Lyftr AI Backend Assignment 🚀**
+**Built for Lyftr AI Backend Assignment **
 
 </div>
